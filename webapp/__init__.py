@@ -1,0 +1,1 @@
+"""Reyting tahmini web arayüzü."""

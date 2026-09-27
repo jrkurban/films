@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+data/raw/
+data/staging/
+data/processed/
+models/*.joblib
+models/*.json
+.ipynb_checkpoints/
+.DS_Store
+agent-tools/

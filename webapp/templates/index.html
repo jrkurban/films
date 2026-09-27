@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Movie Intel — Reyting ve vizyon zamanı</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="wrap">
+    <header class="hero">
+      <div>
+        <h1>Yeni film için tahmini reyting</h1>
+        <p class="lede">
+          Geçmiş yayın verileriyle eğitilmiş model, filmin özelliklerine ve vizyon
+          tarihi/saatine bakarak puan tahmini üretir; aynı filmi aday zaman dilimlerinde
+          tarayarak en yüksek reytingi getirecek vizyon penceresini önerir.
+        </p>
+      </div>
+      <div class="badge">{{ "Model hazır" if model_ready else "Model bekleniyor" }}</div>
+    </header>
+
+    <section class="grid">
+      <form class="panel" id="film-form">
+        <label>Film adı</label>
+        <input name="title" value="Mavi Saat İzmir" required>
+
+        <div class="row">
+          <div>
+            <label>Yönetmen</label>
+            <input name="director" value="Nuri Bilge Ceylan">
+          </div>
+          <div>
+            <label>Oyuncular</label>
+            <input name="cast" value="Haluk Bilginer, Tilda Swinton, Cillian Murphy">
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Türler</label>
+            <input name="genres" value="Drama">
+          </div>
+          <div>
+            <label>Bütçe (USD)</label>
+            <input name="budget_usd" type="number" value="8500000">
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Süre (dk)</label>
+            <input name="runtime_min" type="number" value="126">
+          </div>
+          <div>
+            <label>Vizyon tarihi</label>
+            <input name="release_date" type="date" value="2026-11-20">
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Saat</label>
+            <input name="release_hour" type="number" min="0" max="23" value="19">
+          </div>
+          <div>
+            <label>Dil / ülke</label>
+            <input name="language_country" value="tr / TR">
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Arama başlangıcı</label>
+            <input name="window_start" type="date" value="2026-11-01">
+          </div>
+          <div>
+            <label>Arama bitişi</label>
+            <input name="window_end" type="date" value="2026-12-15">
+          </div>
+        </div>
+
+        <button type="button" id="predict-btn">Bu tarih için reyting tahmin et</button>
+        <button type="button" class="secondary" id="recommend-btn">En iyi vizyon zamanını öner</button>
+      </form>
+
+      <aside class="panel">
+        <p class="muted">Tahmini reyting</p>
+        <p class="score" id="score">—</p>
+        <p class="muted" id="score-note">Bir tahmin çalıştırın.</p>
+        <p class="error" id="error"></p>
+        <h2>Önerilen dilimler</h2>
+        <ul class="slots" id="slots"></ul>
+        <div class="metrics">
+          {% if metrics %}
+            Seçilen model: {{ metrics.algorithm }} · RMSE {{ metrics.metrics.rmse }} · MAE {{ metrics.metrics.mae }} · R² {{ metrics.metrics.r2 }}
+            <br>Karşılaştırılan model RMSE {{ metrics.baseline_metrics.rmse }}
+          {% else %}
+            Eğitim metrikleri henüz yok.
+          {% endif %}
+        </div>
+      </aside>
+    </section>
+  </main>
+  <script>
+    const form = document.getElementById("film-form");
+    const errorEl = document.getElementById("error");
+
+    function payload() {
+      const data = Object.fromEntries(new FormData(form).entries());
+      const [language, country] = (data.language_country || "tr / TR").split("/").map(s => s.trim());
+      return {
+        title: data.title,
+        director: data.director,
+        cast: data.cast,
+        genres: data.genres,
+        budget_usd: Number(data.budget_usd),
+        runtime_min: Number(data.runtime_min),
+        release_date: data.release_date,
+        release_hour: Number(data.release_hour),
+        language,
+        country,
+        window_start: data.window_start,
+        window_end: data.window_end,
+        top_n: 8,
+      };
+    }
+
+    async function post(url, body) {
+      errorEl.textContent = "";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.detail || "İstek başarısız");
+      return json;
+    }
+
+    document.getElementById("predict-btn").addEventListener("click", async () => {
+      try {
+        const result = await post("/api/predict", payload());
+        document.getElementById("score").textContent = result.predicted_rating.toFixed(2);
+        document.getElementById("score-note").textContent = "Seçilen vizyon anı için model çıktısı (0–10).";
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+
+    document.getElementById("recommend-btn").addEventListener("click", async () => {
+      try {
+        const result = await post("/api/recommend", payload());
+        const list = document.getElementById("slots");
+        list.innerHTML = "";
+        (result.slots || []).forEach((slot, i) => {
+          const li = document.createElement("li");
+          li.innerHTML = `<span>${i === 0 ? "En iyi · " : ""}${slot.release_date} ${String(slot.release_hour).padStart(2, "0")}:00 · ${slot.weekday}</span><strong>${slot.predicted_rating.toFixed(2)}</strong>`;
+          list.appendChild(li);
+        });
+        if (result.best) {
+          document.getElementById("score").textContent = result.best.predicted_rating.toFixed(2);
+          document.getElementById("score-note").textContent = `Önerilen vizyon: ${result.best.release_date} ${result.best.release_hour}:00`;
+        }
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+  </script>
+</body>
+</html>
