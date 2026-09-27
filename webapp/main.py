@@ -54,9 +54,9 @@ def _metrics() -> dict:
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "metrics": _metrics(),
             "model_ready": DEFAULT_MODEL.exists(),
             "data_ready": DEFAULT_MERGED.exists(),
